@@ -1,0 +1,288 @@
+{
+  "entities": {
+    "Book": {
+      "title": "Book",
+      "description": "Digital library book catalog entry stored in Cloud Firestore.",
+      "type": "object",
+      "properties": {
+        "bookCode": {
+          "type": "string",
+          "description": "Auto-generated readable book catalog identifier.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "title": {
+          "type": "string",
+          "description": "Book title.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "author": {
+          "type": "string",
+          "description": "Author name.",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "publisher": {
+          "type": "string",
+          "description": "Publisher name.",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "year": {
+          "type": "integer",
+          "description": "Publication year."
+        },
+        "isbn": {
+          "type": "string",
+          "description": "Optional ISBN identifier.",
+          "maxLength": 40
+        },
+        "category": {
+          "type": "string",
+          "description": "Book category name.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "description": {
+          "type": "string",
+          "description": "Book synopsis or description.",
+          "minLength": 1,
+          "maxLength": 5000
+        },
+        "coverUrl": {
+          "type": "string",
+          "description": "URL or asset path to book cover image.",
+          "maxLength": 1000
+        },
+        "fileUrl": {
+          "type": "string",
+          "description": "URL to PDF/EPUB or external book file.",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "fileFormat": {
+          "type": "string",
+          "description": "Format of the digital book file.",
+          "enum": ["PDF", "EPUB", "DRIVE_PDF", "EXTERNAL"],
+          "maxLength": 32
+        },
+        "fileSize": {
+          "type": "string",
+          "description": "Human-readable file size.",
+          "maxLength": 40
+        },
+        "status": {
+          "type": "string",
+          "description": "Publication visibility status.",
+          "enum": ["published", "hidden"],
+          "maxLength": 20
+        },
+        "isDemo": {
+          "type": "boolean",
+          "description": "Indicates whether this item is part of initial demo catalog data."
+        },
+        "recommended": {
+          "type": "boolean",
+          "description": "Marks book as curatorially recommended."
+        },
+        "viewsCount": {
+          "type": "integer",
+          "description": "Total reading views count."
+        },
+        "downloadsCount": {
+          "type": "integer",
+          "description": "Total download count."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when book was added."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when book was last updated."
+        }
+      },
+      "required": [
+        "bookCode",
+        "title",
+        "author",
+        "publisher",
+        "year",
+        "category",
+        "description",
+        "fileUrl",
+        "fileFormat",
+        "status",
+        "viewsCount",
+        "downloadsCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Book classification category.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["name", "slug", "createdAt", "updatedAt"]
+    },
+    "UserFavorite": {
+      "title": "UserFavorite",
+      "description": "User-saved favorite book entry.",
+      "type": "object",
+      "properties": {
+        "bookId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "coverUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["bookId", "title", "author", "category", "addedAt"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized administrator registry document keyed by user UID.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "addedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "name", "addedBy", "createdAt"]
+    },
+    "LibrarySettings": {
+      "title": "LibrarySettings",
+      "description": "Global digital library configuration.",
+      "type": "object",
+      "properties": {
+        "libraryName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "tagline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "heroTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "heroDescription": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "allowGuestDownload": {
+          "type": "boolean"
+        },
+        "itemsPerPage": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "libraryName",
+        "tagline",
+        "heroTitle",
+        "heroDescription",
+        "allowGuestDownload",
+        "itemsPerPage",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/books/{bookId}": {
+      "schema": { "$ref": "#/entities/Book" },
+      "description": "Publicly readable published books; full CRUD restricted to administrators."
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Library book categories; publicly readable, writable only by administrators."
+    },
+    "/users/{userId}/favorites/{bookId}": {
+      "schema": { "$ref": "#/entities/UserFavorite" },
+      "description": "Per-user saved favorite books, strictly private to the owning user."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Authorized admin UIDs managed by the bootstrapped administrator."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/LibrarySettings" },
+      "description": "Global library settings document at /settings/library."
+    }
+  }
+}

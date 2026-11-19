@@ -1,0 +1,232 @@
+import type { Book, Category, LibrarySettings } from '../types/library';
+
+export const DEFAULT_SETTINGS: LibrarySettings = {
+  libraryName: 'RUANG BACA VIRTUAL',
+  tagline: 'Membaca Tanpa Batas, Pengetahuan Tanpa Jarak.',
+  heroTitle: 'Temukan Dunia Pengetahuan dalam Satu Ruang.',
+  heroDescription:
+    'Jelajahi berbagai koleksi buku digital dan nikmati pengalaman membaca kapan saja dan di mana saja.',
+  allowGuestDownload: true,
+  itemsPerPage: 12,
+  updatedAt: Date.now(),
+};
+
+export function buildSamplePdfUrl(book: {
+  bookCode: string;
+  title: string;
+  author: string;
+  publisher: string;
+  year: number;
+  category: string;
+  isbn?: string;
+  description: string;
+}): string {
+  const params = new URLSearchParams({
+    bookCode: book.bookCode,
+    title: book.title,
+    author: book.author,
+    publisher: book.publisher,
+    year: String(book.year),
+    category: book.category,
+    isbn: book.isbn || '-',
+    description: book.description.slice(0, 600),
+  });
+  return `/api/sample-pdf?${params.toString()}`;
+}
+
+export const DEMO_CATEGORIES: Category[] = [
+  { id: 'cat-pendidikan', name: 'Pendidikan', slug: 'pendidikan', description: 'Buku ajar, metodologi pembelajaran, dan pedagogi modern.', createdAt: 1760000000000, updatedAt: 1760000000000 },
+  { id: 'cat-teknologi', name: 'Teknologi', slug: 'teknologi', description: 'Rekayasa perangkat lunak, kecerdasan buatan, dan arsitektur sistem.', createdAt: 1760000000000, updatedAt: 1760000000000 },
+  { id: 'cat-sejarah', name: 'Sejarah', slug: 'sejarah', description: 'Sejarah Nusantara, arsip peradaban, dan kajian historiografi.', createdAt: 1760000000000, updatedAt: 1760000000000 },
+  { id: 'cat-agama', name: 'Agama', slug: 'agama', description: 'Kajian keagamaan, etika spiritual, dan filsafat moral.', createdAt: 1760000000000, updatedAt: 1760000000000 },
+  { id: 'cat-fiksi', name: 'Fiksi', slug: 'fiksi', description: 'Kumpulan cerita pendek, fiksi spekulatif, dan sastra kontemporer.', createdAt: 1760000000000, updatedAt: 1760000000000 },
+  { id: 'cat-novel', name: 'Novel', slug: 'novel', description: 'Karya sastra panjang dengan narasi mendalam dan berkarakter.', createdAt: 1760000000000, updatedAt: 1760000000000 },
+  { id: 'cat-psikologi', name: 'Psikologi', slug: 'psikologi', description: 'Psikologi kognitif, kesehatan mental, dan perilaku manusia.', createdAt: 1760000000000, updatedAt: 1760000000000 },
+  { id: 'cat-kesehatan', name: 'Kesehatan', slug: 'kesehatan', description: 'Kedokteran preventif, gizi seimbang, dan kesehatan masyarakat.', createdAt: 1760000000000, updatedAt: 1760000000000 },
+  { id: 'cat-ekonomi', name: 'Ekonomi', slug: 'ekonomi', description: 'Ekonomi makro, kewirausahaan, dan tata kelola maritim.', createdAt: 1760000000000, updatedAt: 1760000000000 },
+  { id: 'cat-pengetahuan-umum', name: 'Pengetahuan Umum', slug: 'pengetahuan-umum', description: 'Ensiklopedia ringkas, sains populer, dan wawasan lintas disiplin.', createdAt: 1760000000000, updatedAt: 1760000000000 },
+];
+
+const RAW_DEMO_BOOKS: Omit<Book, 'fileUrl'>[] = [
+  {
+    id: 'demo-arsitektur-nusantara',
+    bookCode: 'RBV-2026-0001',
+    title: 'Dialog Ruang dan Arsitektur Nusantara',
+    author: 'Dr. Hendra Wijaya',
+    publisher: 'Pustaka Cendekia Jakarta',
+    year: 2025,
+    isbn: '978-602-412-881-2',
+    category: 'Sejarah',
+    description:
+      'Monograf komprehensif yang menelusuri evolusi bentuk bangunan vernakular hingga ruang publik modern di Indonesia. Buku ini mengkaji hubungan antara iklim tropis, material lokal, dan filosofi ruang komunal.',
+    coverUrl: '/src/assets/images/cover_arsitektur_nusantara_1795052967016.jpg',
+    fileFormat: 'PDF',
+    fileSize: '48 KB',
+    status: 'published',
+    isDemo: true,
+    recommended: true,
+    viewsCount: 342,
+    downloadsCount: 189,
+    createdAt: 1763200000000,
+    updatedAt: 1763200000000,
+  },
+  {
+    id: 'demo-algoritma-sistem',
+    bookCode: 'RBV-2026-0002',
+    title: 'Fondasi Sistem Digital & Arsitektur Jaringan',
+    author: 'Prof. Ratna Kusumawati',
+    publisher: 'Informatika Nusantara Press',
+    year: 2026,
+    isbn: '978-623-501-114-9',
+    category: 'Teknologi',
+    description:
+      'Panduan terstruktur mengenai perancangan sistem terdistribusi, keandalan infrastruktur cloud, serta prinsip algoritma modern untuk mahasiswa teknik informatika dan praktisi perangkat lunak.',
+    coverUrl: '/src/assets/images/cover_algoritma_sistem_1795052966382.jpg',
+    fileFormat: 'PDF',
+    fileSize: '49 KB',
+    status: 'published',
+    isDemo: true,
+    recommended: true,
+    viewsCount: 518,
+    downloadsCount: 312,
+    createdAt: 1763400000000,
+    updatedAt: 1763400000000,
+  },
+  {
+    id: 'demo-psikologi-tenang',
+    bookCode: 'RBV-2026-0003',
+    title: 'Psikologi Ketenangan di Era Hiperkonektivitas',
+    author: 'Nadia Larasati, M.Psi.',
+    publisher: 'Lentera Jiwa Bandung',
+    year: 2025,
+    isbn: '978-602-987-330-4',
+    category: 'Psikologi',
+    description:
+      'Eksplorasi berbasis riset kognitif mengenai bagaimana perhatian manusia merespons derasnya arus informasi digital, dilengkapi strategi praktis untuk menjaga kejernihan berpikir dan keseimbangan emosi.',
+    coverUrl: '/src/assets/images/cover_psikologi_tenang_1795052966216.jpg',
+    fileFormat: 'PDF',
+    fileSize: '47 KB',
+    status: 'published',
+    isDemo: true,
+    recommended: true,
+    viewsCount: 410,
+    downloadsCount: 245,
+    createdAt: 1763100000000,
+    updatedAt: 1763100000000,
+  },
+  {
+    id: 'demo-ekonomi-maritim',
+    bookCode: 'RBV-2026-0004',
+    title: 'Ekonomi Maritim & Poros Logistik Kepulauan',
+    author: 'Budi Santoso, Ph.D.',
+    publisher: 'Balai Pustaka Ekonomi',
+    year: 2026,
+    isbn: '978-623-204-552-7',
+    category: 'Ekonomi',
+    description:
+      'Analisis mendalam mengenai rantai pasok laut, pelabuhan strategis, dan daya saing perdagangan antar-pulau sebagai tulang punggung pertumbuhan ekonomi negara kepulauan.',
+    coverUrl: '/src/assets/images/cover_ekonomi_maritim_1795052966357.jpg',
+    fileFormat: 'PDF',
+    fileSize: '48 KB',
+    status: 'published',
+    isDemo: true,
+    recommended: true,
+    viewsCount: 276,
+    downloadsCount: 164,
+    createdAt: 1763350000000,
+    updatedAt: 1763350000000,
+  },
+  {
+    id: 'demo-literasi-pendidikan',
+    bookCode: 'RBV-2026-0005',
+    title: 'Desain Kurikulum Abad 21 & Literasi Kritis',
+    author: 'Dra. Siti Aminah',
+    publisher: 'Akademika Edukasi',
+    year: 2024,
+    isbn: '978-602-771-102-8',
+    category: 'Pendidikan',
+    description:
+      'Buku pegangan bagi pendidik dan pengembang kurikulum dalam merancang pembelajaran berbasis proyek, asesmen autentik, serta penguatan literasi digital di ruang kelas.',
+    coverUrl: '',
+    fileFormat: 'PDF',
+    fileSize: '47 KB',
+    status: 'published',
+    isDemo: true,
+    recommended: false,
+    viewsCount: 195,
+    downloadsCount: 120,
+    createdAt: 1762900000000,
+    updatedAt: 1762900000000,
+  },
+  {
+    id: 'demo-nutrisi-holistik',
+    bookCode: 'RBV-2026-0006',
+    title: 'Ilmu Gizi Preventif & Kesehatan Masyarakat',
+    author: 'dr. Adi Prasetyo, MPH',
+    publisher: 'Medika Sehat Mandiri',
+    year: 2025,
+    isbn: '978-623-882-019-5',
+    category: 'Kesehatan',
+    description:
+      'Referensi populer-ilmiah tentang pola makan seimbang berbasis pangan lokal, metabolisme harian, dan strategi pencegahan penyakit tidak menular pada keluarga modern.',
+    coverUrl: '',
+    fileFormat: 'PDF',
+    fileSize: '48 KB',
+    status: 'published',
+    isDemo: true,
+    recommended: false,
+    viewsCount: 230,
+    downloadsCount: 148,
+    createdAt: 1763050000000,
+    updatedAt: 1763050000000,
+  },
+  {
+    id: 'demo-senja-pelabuhan',
+    bookCode: 'RBV-2026-0007',
+    title: 'Senja di Pelabuhan Lama',
+    author: 'Raka Mahendra',
+    publisher: 'Aksara Sastra Indonesia',
+    year: 2024,
+    isbn: '978-602-319-440-1',
+    category: 'Novel',
+    description:
+      'Sebuah novel bernuansa humanis tentang seorang pustakawan muda yang menemukan surat-surat tua di balik rak arsip kota pelabuhan, merangkai kembali kisah persahabatan lintas generasi.',
+    coverUrl: '',
+    fileFormat: 'PDF',
+    fileSize: '46 KB',
+    status: 'published',
+    isDemo: true,
+    recommended: true,
+    viewsCount: 485,
+    downloadsCount: 290,
+    createdAt: 1763150000000,
+    updatedAt: 1763150000000,
+  },
+  {
+    id: 'demo-etika-spiritual',
+    bookCode: 'RBV-2026-0008',
+    title: 'Etika Sosial & Harmoni Kehidupan Beragama',
+    author: 'K.H. Ahmad Fauzan',
+    publisher: 'Pustaka Hikmah Nusantara',
+    year: 2023,
+    isbn: '978-602-119-821-0',
+    category: 'Agama',
+    description:
+      'Kumpulan esai reflektif yang membahas nilai-nilai welas asih, keadilan sosial, dan etika bermasyarakat dalam konteks kemajemukan budaya Indonesia.',
+    coverUrl: '',
+    fileFormat: 'PDF',
+    fileSize: '47 KB',
+    status: 'published',
+    isDemo: true,
+    recommended: false,
+    viewsCount: 168,
+    downloadsCount: 94,
+    createdAt: 1762800000000,
+    updatedAt: 1762800000000,
+  },
+];
+
+export const DEMO_BOOKS: Book[] = RAW_DEMO_BOOKS.map((book) => ({
+  ...book,
+  fileUrl: buildSamplePdfUrl(book),
+}));

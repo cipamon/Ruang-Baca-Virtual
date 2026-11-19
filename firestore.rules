@@ -1,0 +1,200 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Primitive Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'faniku2021@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidOptionalString(data, field, maxLen) {
+      return !(field in data) || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isValidOptionalBool(data, field) {
+      return !(field in data) || (data[field] is bool);
+    }
+
+    // --- Entity Validation Blueprints ---
+    function isValidBook(data) {
+      return data.keys().hasAll([
+        'bookCode', 'title', 'author', 'publisher', 'year', 'category',
+        'description', 'fileUrl', 'fileFormat', 'status',
+        'viewsCount', 'downloadsCount', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'bookCode', 'title', 'author', 'publisher', 'year', 'isbn', 'category',
+        'description', 'coverUrl', 'fileUrl', 'fileFormat', 'fileSize', 'status',
+        'isDemo', 'recommended', 'viewsCount', 'downloadsCount', 'createdAt', 'updatedAt'
+      ]) &&
+      data.bookCode is string && data.bookCode.size() >= 1 && data.bookCode.size() <= 64 &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+      data.author is string && data.author.size() >= 1 && data.author.size() <= 150 &&
+      data.publisher is string && data.publisher.size() >= 1 && data.publisher.size() <= 150 &&
+      data.year is int && data.year >= 1000 && data.year <= 2100 &&
+      isValidOptionalString(data, 'isbn', 40) &&
+      data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+      data.description is string && data.description.size() >= 1 && data.description.size() <= 5000 &&
+      isValidOptionalString(data, 'coverUrl', 1000) &&
+      data.fileUrl is string && data.fileUrl.size() >= 1 && data.fileUrl.size() <= 1000 &&
+      data.fileFormat in ['PDF', 'EPUB', 'DRIVE_PDF', 'EXTERNAL'] &&
+      isValidOptionalString(data, 'fileSize', 40) &&
+      data.status in ['published', 'hidden'] &&
+      isValidOptionalBool(data, 'isDemo') &&
+      isValidOptionalBool(data, 'recommended') &&
+      data.viewsCount is int && data.viewsCount >= 0 &&
+      data.downloadsCount is int && data.downloadsCount >= 0 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['name', 'slug', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['name', 'slug', 'description', 'createdAt', 'updatedAt']) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+        data.slug is string && data.slug.size() >= 1 && data.slug.size() <= 80 &&
+        data.slug.matches('^[a-z0-9-]+$') &&
+        isValidOptionalString(data, 'description', 300) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserFavorite(data, bookId) {
+      return data.keys().hasAll(['bookId', 'title', 'author', 'category', 'addedAt']) &&
+        data.keys().hasOnly(['bookId', 'title', 'author', 'coverUrl', 'category', 'addedAt']) &&
+        data.bookId is string && data.bookId == bookId && isValidId(data.bookId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.author is string && data.author.size() >= 1 && data.author.size() <= 150 &&
+        isValidOptionalString(data, 'coverUrl', 1000) &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+        data.addedAt is timestamp;
+    }
+
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['email', 'name', 'addedBy', 'createdAt']) &&
+        data.keys().hasOnly(['email', 'name', 'addedBy', 'createdAt']) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 150 &&
+        data.addedBy is string && data.addedBy == request.auth.uid && isValidId(data.addedBy) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidLibrarySettings(data) {
+      return data.keys().hasAll([
+        'libraryName', 'tagline', 'heroTitle', 'heroDescription',
+        'allowGuestDownload', 'itemsPerPage', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'libraryName', 'tagline', 'heroTitle', 'heroDescription',
+        'allowGuestDownload', 'itemsPerPage', 'updatedAt'
+      ]) &&
+      data.libraryName is string && data.libraryName.size() >= 1 && data.libraryName.size() <= 120 &&
+      data.tagline is string && data.tagline.size() >= 1 && data.tagline.size() <= 240 &&
+      data.heroTitle is string && data.heroTitle.size() >= 1 && data.heroTitle.size() <= 200 &&
+      data.heroDescription is string && data.heroDescription.size() >= 1 && data.heroDescription.size() <= 500 &&
+      data.allowGuestDownload is bool &&
+      data.itemsPerPage is int && data.itemsPerPage >= 6 && data.itemsPerPage <= 48 &&
+      data.updatedAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+
+    match /books/{bookId} {
+      allow get: if isValidId(bookId) && (existing().status == 'published' || isAdmin());
+      allow list: if resource.data.status == 'published' || isBootstrappedAdmin() || isAdmin();
+      allow create: if isAdmin() && isValidId(bookId) && isValidBook(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(bookId) && isValidBook(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'bookCode', 'title', 'author', 'publisher', 'year', 'isbn', 'category',
+          'description', 'coverUrl', 'fileUrl', 'fileFormat', 'fileSize', 'status',
+          'isDemo', 'recommended', 'viewsCount', 'downloadsCount', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(bookId);
+    }
+
+    match /categories/{categoryId} {
+      allow get: if isValidId(categoryId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(categoryId) && isValidCategory(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(categoryId) && isValidCategory(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'slug', 'description', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(categoryId);
+    }
+
+    match /users/{userId}/favorites/{bookId} {
+      allow get: if isVerifiedUser() && request.auth.uid == userId && isValidId(userId) && isValidId(bookId);
+      allow list: if isVerifiedUser() && request.auth.uid == userId && isValidId(userId);
+      allow create: if isVerifiedUser() && request.auth.uid == userId && isValidId(userId) && isValidId(bookId) &&
+        isValidUserFavorite(incoming(), bookId) && incoming().addedAt == request.time;
+      allow update: if isVerifiedUser() && request.auth.uid == userId && isValidId(userId) && isValidId(bookId) &&
+        isValidUserFavorite(incoming(), bookId) &&
+        incoming().addedAt == existing().addedAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['title', 'author', 'coverUrl', 'category']);
+      allow delete: if isVerifiedUser() && request.auth.uid == userId && isValidId(userId) && isValidId(bookId);
+    }
+
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isBootstrappedAdmin() || (isVerifiedUser() && request.auth.uid == adminId));
+      allow list: if isBootstrappedAdmin();
+      allow create: if isBootstrappedAdmin() && isValidId(adminId) && isValidAdminUser(incoming()) &&
+        incoming().createdAt == request.time;
+      allow update: if isBootstrappedAdmin() && isValidId(adminId) && isValidAdminUser(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['email', 'name']);
+      allow delete: if isBootstrappedAdmin() && isValidId(adminId);
+    }
+
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && settingId == 'library';
+      allow list: if false;
+      allow create: if isAdmin() && isValidId(settingId) && settingId == 'library' &&
+        isValidLibrarySettings(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(settingId) && settingId == 'library' &&
+        isValidLibrarySettings(incoming()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'libraryName', 'tagline', 'heroTitle', 'heroDescription',
+          'allowGuestDownload', 'itemsPerPage', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+  }
+}
