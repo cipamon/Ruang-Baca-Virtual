@@ -6,8 +6,10 @@ import {
   ChevronRight,
   Download,
   ExternalLink,
+  Globe,
   Maximize2,
   Minimize2,
+  RotateCw,
   X,
   ZoomIn,
   ZoomOut,
@@ -43,6 +45,8 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [useDriveIframe, setUseDriveIframe] = useState(false);
+  const [useExternalGoogleViewer, setUseExternalGoogleViewer] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
@@ -58,6 +62,7 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
     setPageNumber(1);
     setNumPages(0);
     setUseDriveIframe(false);
+    setUseExternalGoogleViewer(false);
 
     if (book.fileFormat === 'EPUB' || book.fileFormat === 'EXTERNAL') {
       setLoading(false);
@@ -82,7 +87,7 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
         setNumPages(docProxy.numPages);
         setLoading(false);
       })
-      .catch((err) => {
+      .catch(async (err) => {
         if (cancelled) return;
         console.error('PDF load error:', err);
         if (resolved.isGoogleDrive && resolved.drivePreviewUrl) {
@@ -90,8 +95,24 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
           setLoading(false);
           return;
         }
+
+        let detailedError = '';
+        if (resolved.pdfUrl.startsWith('/api/proxy-pdf')) {
+          try {
+            const probe = await fetch(resolved.pdfUrl);
+            if (!probe.ok) {
+              const json = (await probe.json().catch(() => null)) as { error?: string } | null;
+              if (json?.error) detailedError = json.error;
+            }
+          } catch {
+            // ignore probe error
+          }
+        }
+
+        if (cancelled) return;
         setErrorMsg(
-          'Dokumen PDF tidak dapat dimuat di PDF Viewer. Kemungkinan URL eksternal bukan file PDF langsung, diblokir izin akses, atau server tujuan tidak mendukung pemuatan berkas.'
+          detailedError ||
+            'Dokumen PDF tidak dapat dimuat langsung di PDF Viewer. Anda masih dapat mencoba mode Google Docs Viewer, mengunduh berkas, atau membuka tautan asli.'
         );
         setLoading(false);
       });
@@ -100,10 +121,10 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
       cancelled = true;
       void loadingTask.destroy();
     };
-  }, [book?.id, book?.fileUrl]);
+  }, [book?.id, book?.fileUrl, retryToken]);
 
   useEffect(() => {
-    if (!pdfDoc || !canvasRef.current || useDriveIframe) return;
+    if (!pdfDoc || !canvasRef.current || useDriveIframe || useExternalGoogleViewer) return;
     let renderTask: pdfjsLib.RenderTask | null = null;
     let active = true;
 
@@ -112,19 +133,17 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const viewport = page.getViewport({ scale });
       const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
-      if (!context) return;
 
       canvas.width = Math.floor(viewport.width * dpr);
       canvas.height = Math.floor(viewport.height * dpr);
       canvas.style.width = `${Math.floor(viewport.width)}px`;
       canvas.style.height = `${Math.floor(viewport.height)}px`;
 
-      context.setTransform(dpr, 0, 0, dpr, 0, 0);
       renderTask = page.render({
-        canvasContext: context,
-        viewport,
         canvas,
+        viewport,
+        transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
+        background: '#FFFFFF',
       });
 
       renderTask.promise.catch(() => {
@@ -138,7 +157,7 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
         renderTask.cancel();
       }
     };
-  }, [pdfDoc, pageNumber, scale, useDriveIframe]);
+  }, [pdfDoc, pageNumber, scale, useDriveIframe, useExternalGoogleViewer]);
 
   useEffect(() => {
     const onFsChange = () => {
@@ -149,6 +168,11 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
   }, []);
 
   if (!book) return null;
+
+  const isIframeMode = useDriveIframe || useExternalGoogleViewer;
+  const googleDocsViewerUrl = book.fileUrl.startsWith('http')
+    ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(book.fileUrl)}`
+    : '';
 
   const toggleFullscreen = async () => {
     try {
@@ -195,7 +219,7 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
 
         {/* Page & Zoom Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-          {!useDriveIframe && numPages > 0 && (
+          {!isIframeMode && numPages > 0 && (
             <div className="flex items-center gap-1 bg-white/10 rounded-lg p-1">
               <button
                 type="button"
@@ -221,7 +245,7 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
             </div>
           )}
 
-          {!useDriveIframe && numPages > 0 && (
+          {!isIframeMode && numPages > 0 && (
             <div className="flex items-center gap-1 bg-white/10 rounded-lg p-1">
               <button
                 type="button"
@@ -284,18 +308,39 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
           </div>
         )}
 
-        {!loading && errorMsg && (
+        {!loading && errorMsg && !useExternalGoogleViewer && (
           <div className="my-auto max-w-lg w-full bg-white text-slate-900 rounded-xl p-6 sm:p-8 border border-slate-200">
             <div className="flex items-center gap-3 text-amber-700 mb-3">
               <AlertTriangle className="w-5 h-5 shrink-0" />
               <h3 className="text-lg font-semibold">Berkas Tidak Dapat Ditampilkan di PDF Viewer</h3>
             </div>
             <p className="text-sm text-slate-600 leading-relaxed mb-5">{errorMsg}</p>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2.5">
+              {googleDocsViewerUrl && book.fileFormat !== 'EPUB' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMsg('');
+                    setUseExternalGoogleViewer(true);
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-[#0F2342] rounded-lg hover:bg-[#173361]"
+                >
+                  <Globe className="w-4 h-4 text-sky-300" />
+                  Coba Pembaca Alternatif
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setRetryToken((n) => n + 1)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-[#0F2342] bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100"
+              >
+                <RotateCw className="w-4 h-4 text-sky-700" />
+                Muat Ulang
+              </button>
               <button
                 type="button"
                 onClick={handleDownload}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-[#0F2342] rounded-lg hover:bg-[#173361]"
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
               >
                 <Download className="w-4 h-4" />
                 Coba Unduh Berkas
@@ -326,7 +371,17 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
           </div>
         )}
 
-        {!loading && !errorMsg && !useDriveIframe && pdfDoc && (
+        {!loading && useExternalGoogleViewer && googleDocsViewerUrl && (
+          <div className="w-full max-w-5xl h-full min-h-[75vh] bg-white rounded-xl overflow-hidden border border-slate-700">
+            <iframe
+              src={googleDocsViewerUrl}
+              title={`Pembaca Alternatif - ${book.title}`}
+              className="w-full h-full min-h-[75vh]"
+            />
+          </div>
+        )}
+
+        {!loading && !errorMsg && !isIframeMode && pdfDoc && (
           <div className="bg-white shadow-2xl rounded overflow-hidden max-w-full">
             <canvas ref={canvasRef} className="block max-w-full h-auto" />
           </div>
@@ -334,7 +389,7 @@ export const PdfReaderModal: React.FC<PdfReaderModalProps> = ({
       </div>
 
       {/* Mobile-Friendly Bottom Page Bar */}
-      {!useDriveIframe && numPages > 0 && (
+      {!isIframeMode && numPages > 0 && (
         <footer className="sm:hidden bg-[#0F2342] border-t border-white/10 px-4 py-2.5 flex items-center justify-between">
           <button
             type="button"

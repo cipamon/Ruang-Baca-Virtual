@@ -617,12 +617,12 @@ export function resolveBookReaderUrl(book: Book): {
   }
   const driveMatch =
     raw.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/) ||
-    raw.match(/drive\.google\.com.*[?&]id=([a-zA-Z0-9_-]+)/);
+    raw.match(/(?:drive|docs)\.google\.com.*[?&]id=([a-zA-Z0-9_-]+)/);
 
   if (driveMatch) {
     const driveId = driveMatch[1];
     return {
-      pdfUrl: `/api/proxy-pdf?url=${encodeURIComponent(raw)}&title=${encodeURIComponent(book.title)}`,
+      pdfUrl: `/api/proxy-pdf?url=${encodeURIComponent(raw)}`,
       isGoogleDrive: true,
       drivePreviewUrl: `https://drive.google.com/file/d/${driveId}/preview`,
     };
@@ -630,7 +630,7 @@ export function resolveBookReaderUrl(book: Book): {
 
   if (raw.startsWith('http://') || raw.startsWith('https://')) {
     return {
-      pdfUrl: `/api/proxy-pdf?url=${encodeURIComponent(raw)}&title=${encodeURIComponent(book.title)}`,
+      pdfUrl: `/api/proxy-pdf?url=${encodeURIComponent(raw)}`,
       isGoogleDrive: false,
       drivePreviewUrl: '',
     };

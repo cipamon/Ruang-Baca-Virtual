@@ -91,19 +91,10 @@ async function renderFirstPageToDataUrl(pdfUrl: string): Promise<string | null> 
     canvas.width = Math.max(1, Math.floor(viewport.width));
     canvas.height = Math.max(1, Math.floor(viewport.height));
 
-    const context = canvas.getContext('2d');
-    if (!context) {
-      return null;
-    }
-
-    // Paint crisp white paper backdrop before rendering transparent PDF pages
-    context.fillStyle = '#FFFFFF';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-
     const renderTask = page.render({
-      canvasContext: context,
-      viewport,
       canvas,
+      viewport,
+      background: '#FFFFFF',
     });
     await renderTask.promise;
 

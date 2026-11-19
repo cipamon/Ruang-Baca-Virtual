@@ -325,6 +325,228 @@ async function generateSamplePdfBytes(params: {
   return pdfDoc.save();
 }
 
+const BROWSER_FETCH_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  Accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8',
+};
+
+const waybackCache = new Map<string, { urls: string[]; expiresAt: number }>();
+
+function extractPdfBuffer(buf: Buffer): Buffer | null {
+  if (buf.length < 5) return null;
+  const idx = buf.subarray(0, 1024).indexOf('%PDF-');
+  if (idx === -1) return null;
+  return idx > 0 ? buf.subarray(idx) : buf;
+}
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function tryFetchGoogleDriveConfirmedPdf(
+  driveId: string,
+  html: string
+): Promise<Buffer | null> {
+  try {
+    const actionMatch = html.match(/action=["'](https:\/\/drive\.usercontent\.google\.com\/download[^"']*)["']/i);
+    const confirmMatch =
+      html.match(/name=["']confirm["']\s+value=["']([^"']+)["']/i) ||
+      html.match(/[?&]confirm=([0-9A-Za-z_-]+)/i);
+    const uuidMatch = html.match(/name=["']uuid["']\s+value=["']([^"']+)["']/i);
+
+    const confirmToken = confirmMatch?.[1] || 't';
+    const baseAction = actionMatch?.[1] || 'https://drive.usercontent.google.com/download';
+    const nextUrl = new URL(baseAction);
+    nextUrl.searchParams.set('id', driveId);
+    nextUrl.searchParams.set('export', 'download');
+    nextUrl.searchParams.set('confirm', confirmToken);
+    if (uuidMatch?.[1]) {
+      nextUrl.searchParams.set('uuid', uuidMatch[1]);
+    }
+
+    const res = await fetchWithTimeout(
+      nextUrl.toString(),
+      { headers: BROWSER_FETCH_HEADERS },
+      45000
+    );
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return extractPdfBuffer(buf);
+  } catch {
+    return null;
+  }
+}
+
+function hasPdfEof(buf: Buffer): boolean {
+  if (buf.length < 32) return false;
+  const tail = buf.subarray(Math.max(0, buf.length - 4096));
+  return tail.indexOf('%%EOF') !== -1;
+}
+
+async function findWaybackPdfUrls(rawUrl: string): Promise<string[]> {
+  const key = rawUrl.trim();
+  const cached = waybackCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.urls;
+  }
+
+  try {
+    const cdxEndpoint =
+      `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(key)}` +
+      '&output=json&filter=statuscode:200&filter=mimetype:application/pdf&limit=25';
+    const res = await fetchWithTimeout(cdxEndpoint, { headers: BROWSER_FETCH_HEADERS }, 9000);
+    if (!res.ok) {
+      waybackCache.set(key, { urls: [], expiresAt: Date.now() + 10 * 60 * 1000 });
+      return [];
+    }
+    const rows = (await res.json()) as string[][];
+    const snapshotUrls: string[] = [];
+    const seenDigests = new Set<string>();
+    if (Array.isArray(rows) && rows.length > 1) {
+      // Iterate from newest snapshot to oldest, skipping obvious HTML stubs (< 3 KB)
+      for (let i = rows.length - 1; i >= 1; i--) {
+        const row = rows[i];
+        if (!Array.isArray(row) || row.length < 3 || !row[1] || !row[2]) continue;
+        const cdxLen = Number(row[6] || 0);
+        if (cdxLen > 0 && cdxLen < 3000) continue;
+        const digest = row[5] || row[1];
+        if (seenDigests.has(digest) && snapshotUrls.length >= 3) continue;
+        seenDigests.add(digest);
+        snapshotUrls.push(`https://web.archive.org/web/${row[1]}id_/${row[2]}`);
+      }
+    }
+    waybackCache.set(key, {
+      urls: snapshotUrls,
+      expiresAt: Date.now() + (snapshotUrls.length > 0 ? 6 * 60 * 60 * 1000 : 15 * 60 * 1000),
+    });
+    return snapshotUrls;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchPdfWithFallbacks(
+  rawUrl: string,
+  driveId: string | null
+): Promise<
+  | { ok: true; buf: Buffer; source: string }
+  | { ok: false; status: number; error: string; rawBuf?: Buffer; contentType?: string }
+> {
+  const targetUrl = driveId
+    ? `https://drive.google.com/uc?export=download&id=${driveId}`
+    : rawUrl;
+
+  let lastStatus = 502;
+  let lastRawBuf: Buffer | undefined;
+  let lastContentType = '';
+
+  // 1. Direct upstream attempt
+  try {
+    const upstream = await fetchWithTimeout(targetUrl, { headers: BROWSER_FETCH_HEADERS }, 35000);
+    lastStatus = upstream.status;
+    lastContentType = (upstream.headers.get('content-type') || '').toLowerCase();
+
+    if (upstream.ok) {
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      lastRawBuf = buf;
+      const pdfBuf = extractPdfBuffer(buf);
+      if (pdfBuf) {
+        return { ok: true, buf: pdfBuf, source: 'direct' };
+      }
+      if (driveId && lastContentType.includes('text/html')) {
+        const confirmed = await tryFetchGoogleDriveConfirmedPdf(driveId, buf.toString('utf-8'));
+        if (confirmed) {
+          return { ok: true, buf: confirmed, source: 'drive-confirm' };
+        }
+      }
+    }
+  } catch {
+    // proceed to fallback strategies
+  }
+
+  if (!driveId) {
+    // 2. Try HTTPS upgrade if original link uses HTTP
+    if (rawUrl.startsWith('http://')) {
+      try {
+        const httpsUrl = rawUrl.replace(/^http:\/\//i, 'https://');
+        const res = await fetchWithTimeout(httpsUrl, { headers: BROWSER_FETCH_HEADERS }, 20000);
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          const pdfBuf = extractPdfBuffer(buf);
+          if (pdfBuf) {
+            return { ok: true, buf: pdfBuf, source: 'https-upgrade' };
+          }
+        }
+      } catch {
+        // continue to archive fallback
+      }
+    }
+
+    // 3. Try Wayback Machine archived PDF snapshot (handles Cloudflare 403 & dead 404 links)
+    const archiveUrls = await findWaybackPdfUrls(rawUrl);
+    for (const wbUrl of archiveUrls.slice(0, 8)) {
+      try {
+        const wbRes = await fetchWithTimeout(wbUrl, { headers: BROWSER_FETCH_HEADERS }, 40000);
+        if (!wbRes.ok) continue;
+        const warn = (wbRes.headers.get('warning') || '').toLowerCase();
+        if (warn.includes('truncated')) continue;
+        const wbBuf = Buffer.from(await wbRes.arrayBuffer());
+        const pdfBuf = extractPdfBuffer(wbBuf);
+        if (pdfBuf && hasPdfEof(pdfBuf)) {
+          // Promote verified untruncated snapshot so subsequent requests succeed immediately
+          waybackCache.set(rawUrl.trim(), {
+            urls: [wbUrl],
+            expiresAt: Date.now() + 6 * 60 * 60 * 1000,
+          });
+          return { ok: true, buf: pdfBuf, source: 'wayback' };
+        }
+      } catch {
+        // try next snapshot
+      }
+    }
+  }
+
+  if (lastStatus >= 400 && lastStatus !== 200) {
+    const reason =
+      lastStatus === 403
+        ? 'Server sumber memblokir akses otomatis (HTTP 403 / proteksi bot).'
+        : lastStatus === 404
+          ? 'Berkas PDF tidak lagi ditemukan pada URL sumber (HTTP 404).'
+          : `Sumber eksternal mengembalikan status HTTP ${lastStatus}.`;
+    return {
+      ok: false,
+      status: lastStatus,
+      error: `${reason} Gunakan tautan unduhan atau buka halaman asli di tab baru.`,
+      rawBuf: lastRawBuf,
+      contentType: lastContentType,
+    };
+  }
+
+  return {
+    ok: false,
+    status: 422,
+    error:
+      'Sumber eksternal tidak mengembalikan berkas PDF yang valid (kemungkinan berupa halaman HTML, proteksi keamanan situs asal, atau memerlukan izin akses Google Drive).',
+    rawBuf: lastRawBuf,
+    contentType: lastContentType,
+  };
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
@@ -459,18 +681,17 @@ async function startServer() {
     const drivePreviewUrl = driveId ? `https://drive.google.com/file/d/${driveId}/preview` : '';
 
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
-      const response = await fetch(targetToFetch, {
-        method: 'GET',
-        headers: {
-          Range: 'bytes=0-2047',
-          'User-Agent': 'RuangBacaVirtual-LinkVerifier/1.0',
+      const response = await fetchWithTimeout(
+        targetToFetch,
+        {
+          method: 'GET',
+          headers: {
+            ...BROWSER_FETCH_HEADERS,
+            Range: 'bytes=0-2047',
+          },
         },
-        redirect: 'follow',
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
+        8000
+      );
 
       const contentType = (response.headers.get('content-type') || '').toLowerCase();
       const contentLengthHeader = response.headers.get('content-length');
@@ -482,13 +703,29 @@ async function startServer() {
       }
 
       const buffer = Buffer.from(await response.arrayBuffer());
-      const magic = buffer.subarray(0, 5).toString('ascii');
-      const isPdfMagic = magic === '%PDF-';
+      const isPdfMagic = extractPdfBuffer(buffer) !== null;
       const isPdfMime = contentType.includes('application/pdf') || isPdfMagic;
       const isEpub = contentType.includes('epub') || rawUrl.toLowerCase().endsWith('.epub');
       const isHtml = contentType.includes('text/html');
 
       if (!response.ok && response.status !== 206) {
+        if (!driveId) {
+          const wbUrls = await findWaybackPdfUrls(rawUrl);
+          if (wbUrls.length > 0) {
+            res.json({
+              ok: true,
+              accessible: true,
+              compatibleWithPdfViewer: true,
+              isGoogleDrive: false,
+              format: 'PDF',
+              fileSize: '',
+              directDownloadUrl: rawUrl,
+              previewUrl: wbUrls[0],
+              message: `Sumber asli mengembalikan HTTP ${response.status}, namun salinan PDF terarsip tersedia sehingga tetap dapat dibaca melalui proxy PDF Viewer.`,
+            });
+            return;
+          }
+        }
         res.json({
           ok: false,
           accessible: false,
@@ -636,7 +873,7 @@ async function startServer() {
     }
   });
 
-  // 3. CORS-safe PDF Proxy for PDF.js Viewer & Direct Named Downloads
+  // 3. CORS-safe PDF Proxy with Multi-Strategy Recovery for PDF.js Viewer & Direct Named Downloads
   app.get('/api/proxy-pdf', async (req, res) => {
     const rawUrl = String(req.query.url || '').trim();
     const title = String(req.query.title || 'Buku_Digital');
@@ -661,47 +898,36 @@ async function startServer() {
     }
 
     const driveId = extractGoogleDriveId(rawUrl);
-    const targetUrl = driveId ? `https://drive.google.com/uc?export=download&id=${driveId}` : rawUrl;
 
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 30000);
-      const upstream = await fetch(targetUrl, {
-        headers: { 'User-Agent': 'RuangBacaVirtual-Reader/1.0' },
-        redirect: 'follow',
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
+      const result = await fetchPdfWithFallbacks(rawUrl, driveId);
 
-      if (!upstream.ok) {
-        res.status(upstream.status).json({ error: `Gagal memuat berkas dari sumber eksternal (HTTP ${upstream.status}).` });
+      if (result.ok) {
+        const filename = `${sanitizeFilename(title)}.pdf`;
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader(
+          'Content-Disposition',
+          `${isDownload ? 'attachment' : 'inline'}; filename="${filename}"`
+        );
+        res.setHeader('X-PDF-Source', result.source);
+        if (!isDownload) {
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+        }
+        res.setHeader('Content-Length', String(result.buf.length));
+        res.send(result.buf);
         return;
       }
 
-      const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
-      const arrayBuf = await upstream.arrayBuffer();
-      const buf = Buffer.from(arrayBuf);
-      const isPdf = buf.subarray(0, 5).toString('ascii') === '%PDF-' || contentType.includes('application/pdf');
-
-      if (!isPdf && !isDownload) {
-        res.status(422).json({
-          error:
-            'Sumber eksternal tidak mengembalikan berkas PDF yang valid (kemungkinan berupa halaman HTML atau memerlukan izin akses Google Drive).',
-        });
+      if (isDownload && result.rawBuf && result.rawBuf.length > 0 && !result.contentType?.includes('text/html')) {
+        const filename = `${sanitizeFilename(title)}`;
+        res.setHeader('Content-Type', result.contentType || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Length', String(result.rawBuf.length));
+        res.send(result.rawBuf);
         return;
       }
 
-      const filename = `${sanitizeFilename(title)}.pdf`;
-      res.setHeader('Content-Type', isPdf ? 'application/pdf' : contentType || 'application/octet-stream');
-      res.setHeader(
-        'Content-Disposition',
-        `${isDownload ? 'attachment' : 'inline'}; filename="${filename}"`
-      );
-      if (!isDownload && isPdf) {
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-      }
-      res.setHeader('Content-Length', String(buf.length));
-      res.send(buf);
+      res.status(result.status).json({ error: result.error });
     } catch {
       res.status(502).json({ error: 'Tidak dapat mengambil berkas dari server eksternal.' });
     }
